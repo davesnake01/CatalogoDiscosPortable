@@ -1,0 +1,8 @@
+# Dependencias de la app portable (Flet + SQLite).
+flet
+flet-desktop
+psutil
+
+# Empaquetado (solo necesario para generar ejecutables).
+# El workflow de GitHub Actions lo instala por separado.
+pyinstaller

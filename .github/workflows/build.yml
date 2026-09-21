@@ -1,0 +1,162 @@
+name: Compilar binarios (portable)
+
+on:
+  push:
+    branches:
+      - master # Cada push a master compila y autoincrementa la versión
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Versión/tag a usar (opcional). Vacío = autoincrementa la última.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preparar:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Clonar repositorio (con historial y tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calcular siguiente versión (tag)
+        id: version
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG}" ]; then
+            NEXT="${INPUT_TAG}"
+          else
+            LAST="$(git tag -l 'v*' --sort=-v:refname | head -n1)" || true
+            echo "Último tag encontrado: ${LAST:-<ninguno>}"
+            if [[ "${LAST}" =~ ^v([0-9]+)\.([0-9]+)$ ]]; then
+              NEXT="v${BASH_REMATCH[1]}.$((BASH_REMATCH[2] + 1))"
+            elif [[ "${LAST}" =~ ^v([0-9]+)$ ]]; then
+              NEXT="$(printf 'v%03d' $((BASH_REMATCH[1] + 1)))"
+            else
+              NEXT="v0.1"
+            fi
+          fi
+          echo "Nueva versión: ${NEXT}"
+          echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: preparar
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            etiqueta: linux-x86_64
+          - os: windows-latest
+            etiqueta: windows-x86_64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Dependencias del sistema (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2
+
+      - name: Instalar dependencias de Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compilar con Flet (Linux)
+        if: runner.os == 'Linux'
+        run: flet pack app.py --name CatalogoDiscosPortable --icon icon.png --add-data "icon.png:."
+
+      - name: Preparar AppDir y generar AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p CatalogoDiscosPortable.AppDir/usr/bin
+          cp dist/CatalogoDiscosPortable CatalogoDiscosPortable.AppDir/usr/bin/
+          cat << 'EOF' > CatalogoDiscosPortable.AppDir/CatalogoDiscosPortable.desktop
+          [Desktop Entry]
+          Type=Application
+          Name=CatalogoDiscosPortable
+          Exec=CatalogoDiscosPortable
+          Icon=CatalogoDiscosPortable
+          Categories=Utility;
+          EOF
+          cat << 'EOF' > CatalogoDiscosPortable.AppDir/AppRun
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          exec "${HERE}/usr/bin/CatalogoDiscosPortable" "$@"
+          EOF
+          chmod +x CatalogoDiscosPortable.AppDir/AppRun
+          cp icon.png CatalogoDiscosPortable.AppDir/CatalogoDiscosPortable.png
+          ln -sf CatalogoDiscosPortable.png CatalogoDiscosPortable.AppDir/.DirIcon
+          wget -O appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool CatalogoDiscosPortable.AppDir
+          find . -maxdepth 1 -name "*.AppImage" -exec mv {} CatalogoDiscosPortable-x86_64.AppImage \;
+
+      - name: Compilar con Flet (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: flet pack app.py --name CatalogoDiscosPortable --icon icon.png --add-data "icon.png;."
+
+      - name: Empaquetar ZIP (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/CatalogoDiscosPortable* -DestinationPath CatalogoDiscosPortable-windows-x86_64.zip
+
+      - name: Subir artefacto (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CatalogoDiscosPortable-${{ needs.preparar.outputs.version }}-linux-x86_64
+          path: CatalogoDiscosPortable-x86_64.AppImage
+          if-no-files-found: error
+
+      - name: Subir artefacto (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CatalogoDiscosPortable-${{ needs.preparar.outputs.version }}-windows-x86_64
+          path: CatalogoDiscosPortable-windows-x86_64.zip
+          if-no-files-found: error
+
+  release:
+    needs: [ preparar, build ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar artefactos
+        uses: actions/download-artifact@v4
+        with:
+          path: artefactos
+          merge-multiple: true
+
+      - name: Publicar Release en GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.preparar.outputs.version }}
+          name: ${{ needs.preparar.outputs.version }}
+          generate_release_notes: true
+          files: artefactos/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

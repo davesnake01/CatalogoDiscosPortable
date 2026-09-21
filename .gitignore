@@ -1,0 +1,27 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Salidas de compilación
+build/
+dist/
+*.spec
+*.AppImage
+*.AppDir/
+appimagetool
+
+# Base de datos local (no se sube al repo)
+*.db
+*.db-wal
+*.db-shm
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
