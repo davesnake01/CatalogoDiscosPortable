@@ -8,3 +8,5 @@ psutil
 # Empaquetado (solo necesario para generar ejecutables).
 # El workflow de GitHub Actions lo instala por separado.
 pyinstaller
+# Pillow: en Windows flet pack convierte el icono .png a .ico automáticamente.
+Pillow
