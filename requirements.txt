@@ -1,6 +1,8 @@
 # Dependencias de la app portable (Flet + SQLite).
-flet
-flet-desktop
+# Fijadas: Flet rompe APIs entre versiones mayores (p. ej. page.set_clipboard
+# desapareció en 0.80). Mantener flet y flet-desktop en la misma versión.
+flet==0.85.2
+flet-desktop==0.85.2
 psutil
 
 # Empaquetado (solo necesario para generar ejecutables).

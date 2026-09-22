@@ -182,7 +182,8 @@ def obtener_arbol_disco(disco_id, ruta_relativa=""):
         WHERE escaneo_id = ? AND ruta_relativa = ?
         ORDER BY nombre ASC
     """, (disco_id, ruta_relativa))
-    archivos = c.fetchall()
+    # dict para que la UI pueda usar .get(), igual que listar_catalogos().
+    archivos = [dict(a) for a in c.fetchall()]
     conn.close()
 
     return subcarpetas, archivos
@@ -348,7 +349,7 @@ def buscar_archivos(q, grupo=None, limit=100):
         """, (patron, patron, limit))
     rows = c.fetchall()
     conn.close()
-    return rows
+    return [dict(r) for r in rows]
 
 
 def eliminar_catalogo(disco_id):
@@ -550,9 +551,16 @@ def vista_datos(page: ft.Page):
         for etiqueta, valor in filas
     ], spacing=10)
 
-    def copiar_ruta(e):
-        page.set_clipboard(str(ruta))
-        snack(page, "Ruta copiada al portapapeles", GREEN)
+    # Flet >=0.80 eliminó page.set_clipboard(): ahora es el servicio Clipboard,
+    # que se registra solo al instanciarlo. La referencia debe conservarse viva.
+    clipboard = ft.Clipboard()
+
+    async def copiar_ruta(e):
+        try:
+            await clipboard.set(str(ruta))
+            snack(page, "Ruta copiada al portapapeles", GREEN)
+        except Exception as ex:
+            snack(page, f"No se pudo copiar la ruta: {ex}", RED)
 
     return ft.Column([
         titulo("DATOS Y ALMACENAMIENTO", 16),
